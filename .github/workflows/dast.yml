@@ -75,8 +75,14 @@ jobs:
 
       # php -S ignores .htaccess, so the router reproduces the one rule that
       # must hold: baseline/ (deliberately vulnerable) is never executable.
+      #
+      # PHP_CLI_SERVER_WORKERS matters more than it looks. The built-in server
+      # handles ONE request at a time by default, while ZAP attacks with several
+      # concurrent threads, so without workers every attack request queues behind
+      # the previous one and the scan is bound by the server, not by ZAP.
       - name: Start the application
         run: |
+          PHP_CLI_SERVER_WORKERS=8 \
           php -S 0.0.0.0:"$APP_PORT" -t . .github/ci/router.php \
             > "$RUNNER_TEMP/php-server.log" 2>&1 &
           for i in $(seq 1 30); do
@@ -114,9 +120,13 @@ jobs:
         uses: zaproxy/action-full-scan@v0.12.0
         with:
           target: ${{ env.ZAP_TARGET }}
-          # -a includes alpha-quality passive rules; -T caps the active attack
-          # phase so a slow run cannot hang the job.
-          cmd_options: '-a -T 15'
+          # -a  include alpha-quality passive rules
+          # -m  minutes to spider for
+          # -T  max minutes to wait for ZAP to start and the PASSIVE scan to run.
+          #     It does NOT bound the active scan, which is uncapped by default —
+          #     that is what let the first run pass 18 minutes with no ceiling.
+          # -z  passed through to ZAP itself; this is the real active-scan cap.
+          cmd_options: '-a -m 5 -T 10 -z "-config ascan.maxScanDurationInMins=20"'
           # This is coursework, not a triage queue: do not open GitHub issues,
           # and do not fail the build merely because findings exist.
           allow_issue_writing: false
