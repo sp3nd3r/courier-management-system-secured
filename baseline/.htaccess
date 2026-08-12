@@ -1,0 +1,16 @@
+# This directory holds pre-remediation code kept ONLY as a Semgrep scan baseline.
+# It is deliberately vulnerable (SQL injection, plaintext passwords, IDOR) and
+# must never be executed. This repository doubles as an XAMPP document root, so
+# without this file the vulnerable code would be reachable in a browser at
+# /courier-management-system/baseline/.
+
+<IfModule mod_authz_core.c>
+    # Apache 2.4+
+    Require all denied
+</IfModule>
+
+<IfModule !mod_authz_core.c>
+    # Apache 2.2
+    Order allow,deny
+    Deny from all
+</IfModule>

@@ -28,19 +28,29 @@ jobs:
             --config .semgrep/royal-express.yml \
             .semgrep/royal-express.php
 
-      # --exclude=.semgrep keeps the deliberately vulnerable test fixture out of
-      # the application scan; without it the fixture reports as 12 real findings.
+      # The OPEN column. baseline/ is a frozen copy of the pre-remediation code,
+      # so this is also a live proof that the rules still fire: if it stops
+      # reporting findings, the clean application scan below means nothing.
+      # Deliberately NOT uploaded to code scanning - these are not app defects.
+      - name: Scan pre-remediation baseline (OPEN side)
+        run: |
+          semgrep --config .semgrep/royal-express.yml \
+            --metrics=off --json --output baseline.json baseline/ || true
+
+      # Both excludes matter. .semgrep holds the rule test fixture and baseline/
+      # holds the pre-fix code; either one left in reports as real findings and
+      # would make the fixed application look unremediated in the Security tab.
       - name: Scan application (registry PHP pack + assignment rules)
         run: |
           set -o pipefail
           for fmt in sarif json; do
             semgrep --config p/php --config .semgrep/royal-express.yml \
-              --metrics=off --exclude=.semgrep \
+              --metrics=off --exclude=.semgrep --exclude=baseline \
               --"$fmt" --output "semgrep.$fmt" . || true
           done
           echo "----- Semgrep summary -----"
           semgrep --config p/php --config .semgrep/royal-express.yml \
-            --metrics=off --exclude=.semgrep . || true
+            --metrics=off --exclude=.semgrep --exclude=baseline . || true
 
       - name: Publish V-01/V-02/V-03 status to job summary
         if: always()
@@ -60,3 +70,4 @@ jobs:
           path: |
             semgrep.sarif
             semgrep.json
+            baseline.json

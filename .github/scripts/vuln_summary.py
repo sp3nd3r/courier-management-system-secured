@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Render the V-01/V-02/V-03 remediation status into the GitHub Actions job summary.
+"""Render the V-01/V-02/V-03 OPEN -> RESOLVED comparison into the job summary.
 
-The three assignment rules are expected to report ZERO findings against the fixed
-application. Because an absence of findings proves nothing on its own, the
-workflow runs `semgrep --test` first; this script only reports the scan result,
-and the build already failed if the rules were not firing.
+Two Semgrep reports feed this:
+  baseline.json - the frozen pre-remediation code in baseline/ (the OPEN column)
+  semgrep.json  - the fixed application                        (the RESOLVED column)
+
+Scanning both with the same rules in the same run is what makes the comparison
+like-for-like. The baseline is what stops "0 findings" from being vacuous: it
+proves the rules still fire, on this run, against the code they were written for.
 """
 import collections
 import json
@@ -17,48 +20,79 @@ ASSIGNMENT_RULES = [
     ("royal-v03-idor-unverified-owner", "V-03", "Insecure Direct Object Reference", "CWE-639"),
 ]
 
-REPORT = "semgrep.json"
+FIXED_REPORT = "semgrep.json"
+BASELINE_REPORT = "baseline.json"
+
+
+def load(path):
+    """Return a Counter of rule-name -> count, or None if the report is missing."""
+    try:
+        with open(path) as fh:
+            results = json.load(fh)["results"]
+    except (OSError, ValueError, KeyError) as exc:
+        print(f"could not read {path}: {exc}", file=sys.stderr)
+        return None
+    return collections.Counter(r["check_id"].split(".")[-1] for r in results)
 
 
 def main() -> int:
-    try:
-        with open(REPORT) as fh:
-            results = json.load(fh)["results"]
-    except (OSError, ValueError, KeyError) as exc:
-        print(f"could not read {REPORT}: {exc}", file=sys.stderr)
+    fixed = load(FIXED_REPORT)
+    if fixed is None:
         return 1
-
-    counts = collections.Counter(r["check_id"].split(".")[-1] for r in results)
+    baseline = load(BASELINE_REPORT)
 
     lines = [
         "## Royal Express — secure-coding remediation status",
         "",
         "Ruleset: `p/php` (Semgrep registry) + `.semgrep/royal-express.yml` (assignment rules).",
-        "Custom rules were verified to fire by `semgrep --test` before this scan ran.",
         "",
-        "| ID | Vulnerability | CWE | Findings | Status |",
-        "| --- | --- | --- | ---: | --- |",
     ]
+
+    if baseline is None:
+        lines += ["> Baseline report missing — showing the fixed tree only.", ""]
+        lines += [
+            "| ID | Vulnerability | CWE | Findings | Status |",
+            "| --- | --- | --- | ---: | --- |",
+        ]
+    else:
+        lines += [
+            "`BEFORE` is the frozen pre-remediation code in `baseline/`; `AFTER` is the "
+            "application. Both scanned with the same rules, in this run.",
+            "",
+            "| ID | Vulnerability | CWE | BEFORE | AFTER | Status |",
+            "| --- | --- | --- | ---: | ---: | --- |",
+        ]
 
     outstanding = 0
+    before_total = 0
     for rule_id, vid, name, cwe in ASSIGNMENT_RULES:
-        n = counts.get(rule_id, 0)
-        outstanding += n
-        status = "✅ RESOLVED" if n == 0 else "❌ OPEN"
-        lines.append(f"| {vid} | {name} | {cwe} | {n} | {status} |")
+        after = fixed.get(rule_id, 0)
+        outstanding += after
+        status = "✅ RESOLVED" if after == 0 else "❌ OPEN"
+        if baseline is None:
+            lines.append(f"| {vid} | {name} | {cwe} | {after} | {status} |")
+        else:
+            before = baseline.get(rule_id, 0)
+            before_total += before
+            # A rule that finds nothing in the baseline is not evidence of a fix,
+            # it is evidence the rule stopped working.
+            if before == 0:
+                status = "⚠️ RULE NOT FIRING"
+            lines.append(f"| {vid} | {name} | {cwe} | {before} | {after} | {status} |")
 
-    other = collections.Counter(
-        {k: v for k, v in counts.items()
-         if k not in {r[0] for r in ASSIGNMENT_RULES}}
-    )
+    lines.append("")
+    if baseline is None:
+        lines.append(f"**Assignment vulnerabilities outstanding: {outstanding}**")
+    else:
+        lines.append(
+            f"**{before_total} findings in the pre-remediation baseline → "
+            f"{outstanding} in the fixed application.**"
+        )
+    lines.append("")
+
+    other = {k: v for k, v in fixed.items()
+             if k not in {r[0] for r in ASSIGNMENT_RULES}}
     other_total = sum(other.values())
-
-    lines += [
-        "",
-        f"**Assignment vulnerabilities outstanding: {outstanding}**",
-        "",
-    ]
-
     if other_total:
         lines += [
             f"<details><summary>Other findings from the registry pack ({other_total}) "
