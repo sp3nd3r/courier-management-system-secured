@@ -1,5 +1,10 @@
 name: security-scan
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  # Lets the scan be re-run on unchanged code from the Actions tab, so the
+  # remediation evidence can be regenerated without inventing a dummy commit.
+  workflow_dispatch:
 jobs:
   sast:
     runs-on: ubuntu-latest
