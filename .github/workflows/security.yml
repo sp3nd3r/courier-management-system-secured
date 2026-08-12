@@ -2,8 +2,6 @@ name: security-scan
 on:
   push:
   pull_request:
-  # Lets the scan be re-run on unchanged code from the Actions tab, so the
-  # remediation evidence can be regenerated without inventing a dummy commit.
   workflow_dispatch:
 jobs:
   sast:
@@ -17,10 +15,7 @@ jobs:
       - name: Install Semgrep
         run: pip install semgrep
 
-      # The three assignment rules report ZERO findings against the fixed code.
-      # On its own that is indistinguishable from rules that are broken or never
-      # loaded, so prove they still fire against the pre-fix patterns first. This
-      # step is deliberately NOT tolerant of failure: if it fails, the clean scan
+      # This step is deliberately NOT tolerant of failure: if it fails, the clean scan
       # below cannot be trusted and the build stops here.
       - name: Verify assignment rules still fire (self-test)
         run: |
@@ -28,18 +23,13 @@ jobs:
             --config .semgrep/royal-express.yml \
             .semgrep/royal-express.php
 
-      # The OPEN column. baseline/ is a frozen copy of the pre-remediation code,
-      # so this is also a live proof that the rules still fire: if it stops
-      # reporting findings, the clean application scan below means nothing.
-      # Deliberately NOT uploaded to code scanning - these are not app defects.
+      # The OPEN column is the  pre-remediation code.
       - name: Scan pre-remediation baseline (OPEN side)
         run: |
           semgrep --config .semgrep/royal-express.yml \
             --metrics=off --json --output baseline.json baseline/ || true
 
-      # Both excludes matter. .semgrep holds the rule test fixture and baseline/
-      # holds the pre-fix code; either one left in reports as real findings and
-      # would make the fixed application look unremediated in the Security tab.
+      # .semgrep holds the rule test
       - name: Scan application (registry PHP pack + assignment rules)
         run: |
           set -o pipefail
@@ -71,3 +61,33 @@ jobs:
             semgrep.sarif
             semgrep.json
             baseline.json
+
+  # Software Composition Analysis. Semgrep reads the code this project owns;
+  # this reads the code it borrowed - the bundled jQuery/Bootstrap under js/ -
+  # and matches those versions against known CVEs.
+  #
+  # needs: sast makes it run after the Semgrep job rather than beside it. A
+  # consequence worth knowing: if sast fails, this is skipped rather than run.
+  dependency-check:
+    name: SCA - OWASP Dependency-Check
+    needs: sast
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run OWASP Dependency-Check
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: 'royal-express'
+          path: '.'
+          format: 'HTML'
+
+      - name: Upload Dependency-Check report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-check-report
+          path: reports
