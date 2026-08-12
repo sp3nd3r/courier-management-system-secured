@@ -8,20 +8,50 @@ jobs:
       security-events: write
     steps:
       - uses: actions/checkout@v4
-      - name: Install and run Semgrep (PHP ruleset)
+
+      - name: Install Semgrep
+        run: pip install semgrep
+
+      # The three assignment rules report ZERO findings against the fixed code.
+      # On its own that is indistinguishable from rules that are broken or never
+      # loaded, so prove they still fire against the pre-fix patterns first. This
+      # step is deliberately NOT tolerant of failure: if it fails, the clean scan
+      # below cannot be trusted and the build stops here.
+      - name: Verify assignment rules still fire (self-test)
         run: |
-          pip install semgrep
-          semgrep --config p/php --sarif --output semgrep.sarif . || true
+          semgrep --test --metrics=off \
+            --config .semgrep/royal-express.yml \
+            .semgrep/royal-express.php
+
+      # --exclude=.semgrep keeps the deliberately vulnerable test fixture out of
+      # the application scan; without it the fixture reports as 12 real findings.
+      - name: Scan application (registry PHP pack + assignment rules)
+        run: |
+          set -o pipefail
+          for fmt in sarif json; do
+            semgrep --config p/php --config .semgrep/royal-express.yml \
+              --metrics=off --exclude=.semgrep \
+              --"$fmt" --output "semgrep.$fmt" . || true
+          done
           echo "----- Semgrep summary -----"
-          semgrep --config p/php . || true
+          semgrep --config p/php --config .semgrep/royal-express.yml \
+            --metrics=off --exclude=.semgrep . || true
+
+      - name: Publish V-01/V-02/V-03 status to job summary
+        if: always()
+        run: python3 .github/scripts/vuln_summary.py
+
       - name: Upload SARIF to code scanning
         if: always()
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: semgrep.sarif
+
       - name: Upload Semgrep report (artifact)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: semgrep-report
-          path: semgrep.sarif
+          path: |
+            semgrep.sarif
+            semgrep.json

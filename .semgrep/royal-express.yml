@@ -1,0 +1,60 @@
+# Custom Semgrep rules for the Royal Express secure-coding assignment.
+#
+# Why these exist: the Semgrep registry packs (p/php, p/default) rely on taint
+# analysis that starts at a superglobal ($_GET/$_POST) and ends at a sink in the
+# SAME function. In this codebase the superglobal is read in server/api.php and
+# passed as an array parameter ($data) into functions in server/inc/*.php, so the
+# stock rules never connect source to sink and report nothing. These rules match
+# the vulnerable constructs structurally instead.
+rules:
+  - id: royal-v01-sqli-interpolated-value
+    languages: [php]
+    severity: ERROR
+    message: >-
+      V-01 SQL injection (CWE-89): a PHP variable is interpolated directly as a
+      quoted value into a SQL statement. Attacker-controlled input reaches the
+      query unescaped. Use a parameterised query - db_select()/db_exec() with ?
+      placeholders and a bound-parameter array.
+    metadata:
+      assignment-id: V-01
+      cwe: "CWE-89: Improper Neutralization of Special Elements used in an SQL Command"
+      confidence: HIGH
+    # Matches "... SELECT/INSERT/UPDATE/DELETE ... '$var' ..." - a variable used
+    # as a VALUE. Deliberately does NOT match `$table` / `$field` identifier
+    # interpolation (backticks), which the fixed code allow-lists via
+    # clean_identifier() and cannot be parameterised with ?.
+    pattern-regex: "\"[^\"]*(SELECT|INSERT|UPDATE|DELETE)[^\"]*'\\$\\{?[a-zA-Z_]\\w*"
+
+  - id: royal-v02-plaintext-password-in-sql
+    languages: [php]
+    severity: ERROR
+    message: >-
+      V-02 Weak password storage (CWE-256/CWE-916): a password value is written to
+      or compared against the database in plaintext. Store passwords with
+      password_hash($pw, PASSWORD_BCRYPT) and verify with password_verify().
+    metadata:
+      assignment-id: V-02
+      cwe: "CWE-256: Plaintext Storage of a Password"
+      confidence: HIGH
+    pattern-either:
+      # WHERE password = '$password'  -> plaintext authentication
+      - pattern-regex: "password\\s*=\\s*'\\$\\{?[a-zA-Z_]\\w*"
+      # INSERT ... VALUES(... '$password' ...) -> plaintext storage
+      - pattern-regex: "\"[^\"]*(INSERT|UPDATE)[^\"]*'\\$\\{?password\\b"
+
+  - id: royal-v03-idor-unverified-owner
+    languages: [php]
+    severity: ERROR
+    message: >-
+      V-03 Insecure Direct Object Reference (CWE-639): a record identifier is taken
+      straight from the request and used to fetch another user's data with no
+      ownership check. Derive the identity from the session and verify ownership
+      (assert_owns()) before returning the record.
+    metadata:
+      assignment-id: V-03
+      cwe: "CWE-639: Authorization Bypass Through User-Controlled Key"
+      confidence: HIGH
+    pattern-either:
+      - pattern: getBille($_REQUEST[...])
+      - pattern: getBille($_GET[...])
+      - pattern: getBille($_POST[...])
