@@ -46,9 +46,9 @@ def main() -> int:
     baseline = load(BASELINE_REPORT)
 
     lines = [
-        "## Royal Express — secure-coding remediation status",
+        "## Royal Express: Secure Coding Remediation Status",
         "",
-        "Ruleset: `p/php` (Semgrep registry) + `.semgrep/royal-express.yml` (assignment rules).",
+        "Ruleset: `p/php` (Semgrep registry) + `.semgrep/royal-express.yml` (Custom Rules).",
         "",
     ]
 
