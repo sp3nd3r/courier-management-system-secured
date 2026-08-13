@@ -15,21 +15,20 @@ jobs:
       - name: Install Semgrep
         run: pip install semgrep
 
-      # This step is deliberately NOT tolerant of failure: if it fails, the clean scan
-      # below cannot be trusted and the build stops here.
+      # Check that our custom rules are working before running the scan.
       - name: Verify assignment rules still fire (self-test)
         run: |
           semgrep --test --metrics=off \
             --config .semgrep/royal-express.yml \
             .semgrep/royal-express.php
 
-      # The OPEN column is the  pre-remediation code.
+      # Scan the original vulnerable code for comparison.
       - name: Scan pre-remediation baseline (OPEN side)
         run: |
           semgrep --config .semgrep/royal-express.yml \
             --metrics=off --json --output baseline.json baseline/ || true
 
-      # .semgrep holds the rule test
+      # Run Semgrep on the current application code.
       - name: Scan application (registry PHP pack + assignment rules)
         run: |
           set -o pipefail
@@ -62,12 +61,7 @@ jobs:
             semgrep.json
             baseline.json
 
-  # Software Composition Analysis. Semgrep reads the code this project owns;
-  # this reads the code it borrowed - the bundled jQuery/Bootstrap under js/ -
-  # and matches those versions against known CVEs.
-  #
-  # needs: sast makes it run after the Semgrep job rather than beside it. A
-  # consequence worth knowing: if sast fails, this is skipped rather than run.
+  # Software Composition Analysis. Check the third-party dependencies used by the project.
   dependency-check:
     name: SCA - OWASP Dependency-Check
     needs: sast

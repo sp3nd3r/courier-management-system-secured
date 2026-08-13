@@ -13,6 +13,10 @@ import collections
 import json
 import os
 import sys
+from datetime import datetime, timezone
+
+DETECTED_DATE = "2026-07-06"
+RESOLVED_DATE = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 ASSIGNMENT_RULES = [
     ("royal-v01-sqli-interpolated-value", "V-01", "SQL injection", "CWE-89"),
@@ -59,8 +63,8 @@ def main() -> int:
             "`BEFORE` is the frozen pre-remediation code in `baseline/`; `AFTER` is the "
             "application. Both scanned with the same rules, in this run.",
             "",
-            "| ID | Vulnerability | CWE | BEFORE | AFTER | Status |",
-            "| --- | --- | --- | ---: | ---: | --- |",
+            "| ID | Vulnerability | CWE | BEFORE | AFTER | Detected | Resolved | Status |",
+            "| --- | --- | --- | ---: | ---: | --- | --- | --- |",
         ]
 
     outstanding = 0
@@ -78,7 +82,8 @@ def main() -> int:
             # it is evidence the rule stopped working.
             if before == 0:
                 status = "⚠️ RULE NOT FIRING"
-            lines.append(f"| {vid} | {name} | {cwe} | {before} | {after} | {status} |")
+            resolved = RESOLVED_DATE if after == 0 else "—"
+            lines.append(f"| {vid} | {name} | {cwe} | {before} | {after} | {DETECTED_DATE} | {resolved} | {status} |")
 
     lines.append("")
     if baseline is None:
@@ -87,6 +92,11 @@ def main() -> int:
         lines.append(
             f"**{before_total} findings in the pre-remediation baseline → "
             f"{outstanding} in the fixed application.**"
+        )
+        lines.append("")
+        lines.append(
+            f"_Vulnerabilities detected {DETECTED_DATE} (baseline); "
+            f"verified resolved by this automated scan on {RESOLVED_DATE}._"
         )
     lines.append("")
 
